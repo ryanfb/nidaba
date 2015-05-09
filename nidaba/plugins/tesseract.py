@@ -295,6 +295,12 @@ def ocr_capi(image_path, output_path, languages, extended=True):
                                                       ctypes.byref(y1))
                 c_boxes.append((x0.value, y0.value, x1.value, y1.value))
                 if tesseract.TessResultIteratorNext(ri, RIL_SYMBOL) == 0:
+                    if c_boxes:
+                        line_title.add('cuts', *list(delta(l_box, c_boxes)))
+                        line_span['title'] = str(line_title)
+                    if confidences:
+                        word_title.add('x_conf', *[str(int(v)) for v in confidences])
+                        word_span['title'] = str(word_title)
                     break
         with open(output_path, 'wb') as fp:
             fp.write(unicode(doc).encode('utf-8'))

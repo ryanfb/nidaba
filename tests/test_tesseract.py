@@ -37,6 +37,7 @@ class TesseractTests(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.tempdir)
 
+
     def test_capi_multiple(self):
         """
         Test that tesseract CAPI calls create hocr output for multiple
@@ -57,6 +58,7 @@ class TesseractTests(unittest.TestCase):
             html.parse(outpath)
         except etree.XMLSyntaxError:
             self.fail(msg='The output was not valid html/xml!')
+
 
     def test_direct_multiple(self):
         """
@@ -81,6 +83,44 @@ class TesseractTests(unittest.TestCase):
         except etree.XMLSyntaxError:
             self.fail(msg='The output was not valid html/xml!')
 
+
+    def test_capi_extended(self):
+        """
+        Test that the CAPI extended output contains character cuts in each
+        ocr_line and character confidences in each ocrx_word.
+        """
+
+        try:
+            ctypes.cdll.LoadLibrary('libtesseract.so.3')
+        except:
+            raise SkipTest
+
+        pngpath = os.path.join(tessdata, 'image.png')
+        outpath = os.path.join(self.tempdir, 'output')
+        self.tesseract.setup(tessdata=tessdata, implementation='capi')
+        self.tesseract.ocr_capi(pngpath, outpath, ['grc'], extended=True)
+        self.assertTrue(os.path.isfile(outpath),
+                        msg='Tesseract did not output a file!')
+        try:
+            h = html.parse(outpath)
+        except etree.XMLSyntaxError:
+            self.fail(msg='The output was not valid html/xml!')
+        lines = h.findall(".//span[@class='ocr_line']")
+        words = h.findall(".//span[@class='ocrx_word']")
+        for line in lines:
+            if 'cuts' not in line.get('title'):
+                self.fail(msg='ocr_line without character cuts found.')
+        for word in words:
+            title = word.get('title')
+            fields = [field.strip() for field in title.split(';')]
+            conf = [b for b in fields if b.startswith('x_conf')]
+            if len(conf) != 1:
+                self.fail(msg='ocrx_word contains more than one x_conf field')
+            if conf[0].split(' ') != len(word.text):
+                self.fail(msg='ocrx_word contains incorrect number of '
+                          'character confidences')
+
+
     def test_capi_file_output_png(self):
         """
         Test that tesseract CAPI calls create hocr output for pngs.
@@ -102,6 +142,7 @@ class TesseractTests(unittest.TestCase):
         except etree.XMLSyntaxError:
             self.fail(msg='The output was not valid html/xml!')
 
+
     def test_capi_file_output_tiff(self):
         """
         Test that tesseract CAPI calls create hocr output for tiffs.
@@ -121,6 +162,7 @@ class TesseractTests(unittest.TestCase):
             html.parse(outpath)
         except etree.XMLSyntaxError:
             self.fail(msg='The output was not valid html/xml!')
+
 
     def test_capi_file_output_jpg(self):
         """
@@ -142,6 +184,7 @@ class TesseractTests(unittest.TestCase):
             html.parse(outpath)
         except etree.XMLSyntaxError:
             self.fail(msg='The output was not valid html/xml!')
+
 
     def test_direct_file_output_png(self):
         """
@@ -166,6 +209,7 @@ class TesseractTests(unittest.TestCase):
         except etree.XMLSyntaxError:
             self.fail(msg='The output was not valid html/xml!')
 
+
     def test_direct_file_output_tiff(self):
         """
         Test that direct tesseract calls create hocr output for tiffs.
@@ -187,6 +231,7 @@ class TesseractTests(unittest.TestCase):
             html.parse(outpath)
         except etree.XMLSyntaxError:
             self.fail(msg='The output was not valid html/xml!')
+
 
     def test_direct_file_output_jpg(self):
         """

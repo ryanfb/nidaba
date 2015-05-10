@@ -5,6 +5,7 @@ import shutil
 import tempfile
 import subprocess
 import ctypes
+import unicodedata
 
 from lxml import html, etree
 from distutils import spawn
@@ -108,17 +109,20 @@ class TesseractTests(unittest.TestCase):
         lines = h.findall(".//span[@class='ocr_line']")
         words = h.findall(".//span[@class='ocrx_word']")
         for line in lines:
-            if 'cuts' not in line.get('title'):
-                self.fail(msg='ocr_line without character cuts found.')
+            self.assertIn('cuts', line.get('title'), 'ocr_Line without '
+                          'character cuts')
         for word in words:
             title = word.get('title')
             fields = [field.strip() for field in title.split(';')]
             conf = [b for b in fields if b.startswith('x_conf')]
-            if len(conf) != 1:
-                self.fail(msg='ocrx_word contains more than one x_conf field')
-            if conf[0].split(' ') != len(word.text):
-                self.fail(msg='ocrx_word contains incorrect number of '
-                          'character confidences')
+            self.assertEqual(len(conf), 1, 'ocrx_word contains more than one '
+                             'x_conf field')
+            # As one grapheme (visual character) is not always equal to one
+            # codepoint it only makes sense to test that there are less
+            # confidence value than codepoints.
+            self.assertLess(len(conf[0].split()), word.text,
+                             'ocrx_word contains incorrect number of '
+                             'character confidences')
 
 
     def test_capi_file_output_png(self):

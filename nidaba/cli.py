@@ -7,8 +7,10 @@ from __future__ import absolute_import, print_function
 
 from signal import signal, SIGPIPE, SIG_DFL
 from inspect import getcallargs, getdoc
+from gunicorn.six import iteritems
 from itertools import cycle
 from pprint import pprint
+from flask import Flask
 from glob import glob
 
 from nidaba.nidaba import NetworkSimpleBatch, SimpleBatch
@@ -18,6 +20,9 @@ import shutil
 import os.path
 import sys
 import click
+import stevedore
+import logging
+import gunicorn.app.base
 
 # ignore SIGPIPE
 signal(SIGPIPE,SIG_DFL) 
@@ -28,14 +33,7 @@ def spin(msg):
     click.echo(u'\r\033[?25l{}\t\t{}'.format(msg, next(spinner)), nl=False)
 
 
-@click.group()
-@click.version_option()
-def client_only():
-    """
-    API-only version of the nidaba client
-    """
-
-@click.group()
+@click.group(epilog='This nidaba may or may not have Super Cow Powers')
 @click.version_option()
 def main():
     """
@@ -163,12 +161,8 @@ def move_to_storage(batch, kwargs):
 @click.option('-h', '--host', default=None, 
               help='Address of the API service. If none is given a local '
               'installation of nidaba will be invoked.')
-@click.option('--preprocessing', '-i', multiple=True,
-              callback=validate_definition, help='a configuration for a single'
-              'image preprocessing algorithm in the format '
-              'algorithm:param1,param2;param1,param2;...')
 @click.option('--binarize', '-b', multiple=True, callback=validate_definition,
-              help='a configuration for a single binarization algorithm in '
+              help='A configuration for a single binarization algorithm in '
               'the format algorithm:param1,param2;param1,param2;...')
 @click.option('--segmentation', '-l', multiple=True,
               callback=validate_definition,
@@ -188,8 +182,6 @@ def move_to_storage(batch, kwargs):
               callback=validate_definition, help='A configuration for a '
               'single output layer transformation in the format'
               'task:param1,param2;param1;param1...')
-# @click.option('--willitblend', 'blend',  default=False, help='Blend all '
-#              'output files into a single hOCR document.', is_flag=True)
 @click.option('--grayscale', default=False, help='Skip grayscale '
               'conversion using the ITU-R 601-2 luma transform if the input '
               'documents are already in grayscale.', is_flag=True)
@@ -197,8 +189,8 @@ def move_to_storage(batch, kwargs):
               help='Accesses the documentation of all tasks contained in '
               'nidaba itself and in configured plugins.')
 @click.argument('files', type=click.Path(exists=True), nargs=-1, required=True)
-def batch(files, host, preprocessing, binarize, ocr, segmentation, stats,
-          postprocessing, output, grayscale, help_tasks):
+def batch(files, host, binarize, ocr, segmentation, stats, postprocessing,
+          output, grayscale, help_tasks):
     """
     Add a new job to the pipeline.
     """
@@ -237,11 +229,6 @@ def batch(files, host, preprocessing, binarize, ocr, segmentation, stats,
     click.echo(u'Building batch\t\t\t[', nl=False)
     if not grayscale:
         batch.add_task('img', 'rgb_to_gray')
-    if preprocessing:
-        for alg in preprocessing:
-            for kwargs in alg[1]:
-                kwargs = move_to_storage(batch, kwargs)
-                batch.add_task('img', alg[0], **kwargs)
     if binarize:
         for alg in binarize:
             for kwargs in alg[1]:
@@ -306,18 +293,11 @@ def api_server(ctx, **kwargs):
             click.echo('No configuration file found at {}'.format(e.filename))
             ctx.exit()
 
-    import logging
-    import gunicorn.app.base
-
-    from flask import Flask
-    from gunicorn.six import iteritems
-
     logging.basicConfig(level=logging.DEBUG)
 
     app = Flask('nidaba')
     app.register_blueprint(api.get_blueprint())
     app.register_blueprint(web.get_blueprint())
-
 
     class APIServer(gunicorn.app.base.BaseApplication):
 
@@ -366,8 +346,6 @@ def plugins(ctx):
             click.echo('plugins command only available for local installations.')
             ctx.exit()
 
-    import stevedore
-
     mgr = stevedore.ExtensionManager(namespace='nidaba.plugins')
     enabled = set(nidaba_cfg['plugins_load'].keys()).intersection(set(mgr.names()))
     disabled = set(mgr.names()) - enabled
@@ -380,10 +358,10 @@ def plugins(ctx):
 
 
 @main.command()
+@click.option('-v', '--verbose', count=True)
 @click.option('-h', '--host', default=None, 
               help='Address of the API service. If none is given a local '
               'installation of nidaba will be invoked.')
-@click.option('-v', '--verbose', count=True)
 @click.argument('job_id', nargs=1)
 def status(verbose, host, job_id):
     """
@@ -487,6 +465,3 @@ def status(verbose, host, job_id):
                                                      args,
                                                      tb,
                                                      task['errors'][1]))
-
-client_only.add_command(status)
-client_only.add_command(batch)

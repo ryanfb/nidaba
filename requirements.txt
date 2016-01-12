@@ -13,3 +13,4 @@ gunicorn
 Flask
 Flask-RESTful
 requests-toolbelt
+airflow

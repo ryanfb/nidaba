@@ -113,7 +113,9 @@ def blend(doc, method=u'blend'):
                 certs.append(float(line.xpath(".//*[local-name()='certainty' and @target=$tag]", 
                                               tag='#' + g.get(output.xml_ns +'id'))[0].get('degree')))
             recs.append(median.ocr_record(text, len(text) * [None], certs))
-        m = median.approximate_median(recs, median.confidence_weighted_edit_distance)
+        for x in recs:
+            logger.debug('{} {}'.format(len(x), x.prediction))
+        m = median.approximate_median(recs)
         logger.debug('Calculated median: {}'.format(m))
         output.add_graphemes(x for x in m.prediction)
     with storage.StorageFile(*storage.get_storage_path(output_path), mode='wb') as fp:

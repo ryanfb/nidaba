@@ -83,8 +83,16 @@ class ocr_record(object):
         else:
             raise TypeError('Invalid argument type')
 
+    def __eq__(self, other): 
+        return self.__dict__ == other.__dict__
 
-def fast_levenshtein(seq1, seq2, cost_func):
+def cost_func(tok1, tok2):
+    if tok1[0] != tok2[0]:
+        return max(tok1[2], tok2[2])
+    else:
+        return abs(tok2[2] - tok1[2])
+
+def fast_levenshtein(c, seq2, idx, oneago=None):
     """Calculate the Levenshtein distance between sequences.
 
     This implementation is taken from [0] and available under MIT licence with
@@ -95,52 +103,28 @@ def fast_levenshtein(seq1, seq2, cost_func):
     Args:
         seq1: A hashable object providing the __getitem__ function
         seq2: Another hashable object
+        idx: intermediate distance in seq2 to return
         cost_func: Function returning a numeric cost from the i-th character in
-                   seq1 to the j-th character in seq2
+                   xseq1 to the j-th character in seq2
 
     Returns:
         An integer/float value for the edit distance
-
-    [0] http://mwh.geek.nz/2009/04/26/python-damerau-levenshtein-distance/
     """
-    # Conceptually, this is based on a len(seq1) + 1 * len(seq2) + 1 matrix.
-    # However, only the current and two previous rows are needed at once,
-    # so we only store those.
-    oneago = None
-    thisrow = range(1, len(seq2) + 1) + [0]
-    for x in xrange(len(seq1)):
-        # Python lists wrap around for negative indices, so put the
-        # leftmost column at the *end* of the list. This matches with
-        # the zero-indexed strings and saves extra calculation.
-        twoago, oneago, thisrow = oneago, thisrow, [0] * len(seq2) + [x + 1]
-        for y in xrange(len(seq2)):
-            cost = cost_func(seq1[x], seq2[y])
-            delcost = oneago[y] + cost
-            addcost = thisrow[y - 1] + cost
-            subcost = oneago[y - 1] + cost
-            thisrow[y] = min(delcost, addcost, subcost)
-    return thisrow[len(seq2) - 1]
+    if oneago is None:
+        oneago = seq2.confidences + [0]
+    if idx > len(seq2):
+        idx = len(seq2)
+    thisrow = [0] * len(seq2) + seq2.confidences[:1]
+    for y in xrange(len(seq2)):
+        cost = cost_func(c, seq2[y])
+        delcost = oneago[y] + cost
+        addcost = thisrow[y - 1] + cost
+        subcost = oneago[y - 1] + cost
+        thisrow[y] = min(delcost, addcost, subcost)
+
+    return thisrow[len(seq2) - 1], thisrow[idx - 1], tuple(thisrow)
 
 
-class confidence_weighted_edit_distance(object):
-    """
-    Edit distance function using symbol-based confidence weighted edit
-    distance to an unweighted input string adapted from [0].
-
-    [0] Barat, Cécile, et al. "Weighted symbols-based edit distance for
-    string-structured image classification." Machine Learning and Knowledge
-    Discovery in Databases. Springer Berlin Heidelberg, 2010. 72-86.
-    """
-    def __init__(self, strings):
-        pass
-
-    def distance(self, string, record):
-        def cost(tok1, tok2, *args, **kwargs):
-            if tok1[0] != tok2[0]:
-                return max(tok1[2], tok2[2])
-            else:
-                return abs(tok2[2] - tok1[2])
-        return fast_levenshtein(string, record, cost)
 
 class naive_edit_distance(object):
     """
@@ -153,7 +137,7 @@ class naive_edit_distance(object):
         return fast_levenshtein(string.prediction, record.prediction, lambda x,y: 1 if x != y else 0)
 
 
-def approximate_median(strings, distance_class=naive_edit_distance):
+def approximate_median(strings):
     """
     Calculates an approximate generalized median string using the greedy
     algorithm described in [0].
@@ -174,7 +158,8 @@ def approximate_median(strings, distance_class=naive_edit_distance):
     median = ocr_record(u'', [], [])
     mediandist = [np.inf]
     maxlen = len(max(strings, key=len))
-    distance = distance_class(strings)
+    state = [None] * len(strings)
+
     while True:
         mm = np.inf
         for j in alphabet:
@@ -194,19 +179,20 @@ def approximate_median(strings, distance_class=naive_edit_distance):
 
             m = 0
             t = 0
-            # XXX: horribly inefficient. Running the algorithm as intended
-            # calculates the cost once for s[:len(ma)], keeps the matrix around
-            # and then calculates t. Also the matrix is kept between
-            # iterations. As we have no knowledge of the operation of the
-            # distance function there is no other way for now.
-            for s in strings:
-                m += distance.distance(ma, s[:len(ma)])
-                t += distance.distance(ma, s)
+            state_new = [None] * len(strings)
+
+            for idx, s in enumerate(strings):
+                b, c, m_row = fast_levenshtein(ma[-1], s, len(ma), state[idx])
+                state_new[idx] = m_row
+                m += c
+                t += b
             if m < mm:
                 mm = m
                 b_ma = ma
+                b_state = list(state_new)
         mediandist.append(t)
         median = b_ma
+        state = b_state
         if len(median) > maxlen and mediandist[-1] > mediandist[-2]:
             return median[:-1]
 
